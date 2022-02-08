@@ -595,6 +595,9 @@ func (t *http2Client) getStream(f http2.Frame) *Stream {
 // the window.
 func (t *http2Client) adjustWindow(s *Stream, n uint32) {
 	if w := s.fc.maybeAdjust(n); w > 0 {
+		if t.remoteAddr.Network() == "tcp" {
+			klog.Infof("KITEX: update window[%d] after adjustWindow, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+		}
 		t.controlBuf.put(&outgoingWindowUpdate{streamID: s.id, increment: w})
 	}
 }
@@ -612,7 +615,11 @@ func (t *http2Client) updateFlowControl(n uint32) {
 		t.initialWindowSize = n
 		return true
 	}
-	t.controlBuf.executeAndPut(updateIWS, &outgoingWindowUpdate{streamID: 0, increment: t.fc.newLimit(n)})
+	w := t.fc.newLimit(n)
+	if t.remoteAddr.Network() == "tcp" {
+		klog.Infof("KITEX: update window[%d] after updateFlowControl, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+	}
+	t.controlBuf.executeAndPut(updateIWS, &outgoingWindowUpdate{streamID: 0, increment: w})
 	t.controlBuf.put(&outgoingSettings{
 		ss: []http2.Setting{
 			{
@@ -628,6 +635,9 @@ func (t *http2Client) updateFlowControl(n uint32) {
 // exceeds the corresponding threshold.
 func (t *http2Client) updateWindow(s *Stream, n uint32) {
 	if w := s.fc.onRead(n); w > 0 {
+		if t.remoteAddr.Network() == "tcp" {
+			klog.Infof("KITEX: update window[%d] after updateWindow, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+		}
 		t.controlBuf.put(&outgoingWindowUpdate{streamID: s.id, increment: w})
 	}
 }
@@ -637,6 +647,9 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 	var sendBDPPing bool
 	if t.bdpEst != nil {
 		sendBDPPing = t.bdpEst.add(size)
+	}
+	if t.remoteAddr.Network() == "tcp" {
+		klog.Infof("KITEX: handleData size=%d, localAddr=%v, remoteAddr=%v", size, t.localAddr, t.remoteAddr)
 	}
 	// Decouple connection's flow control from application's read.
 	// An update on connection's flow control should not depend on
@@ -648,6 +661,9 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 	// inactive streams.
 	//
 	if w := t.fc.onData(size); w > 0 {
+		if t.remoteAddr.Network() == "tcp" {
+			klog.Infof("KITEX: update window[%d] after onData, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+		}
 		t.controlBuf.put(&outgoingWindowUpdate{
 			streamID:  0,
 			increment: w,
@@ -658,6 +674,9 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		// by sending a window update prior to the BDP ping.
 
 		if w := t.fc.reset(); w > 0 {
+			if t.remoteAddr.Network() == "tcp" {
+				klog.Infof("KITEX: update window[%d] after reset, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+			}
 			t.controlBuf.put(&outgoingWindowUpdate{
 				streamID:  0,
 				increment: w,
@@ -678,6 +697,9 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		}
 		if f.Header().Flags.Has(http2.FlagDataPadded) {
 			if w := s.fc.onRead(size - uint32(len(f.Data()))); w > 0 {
+				if t.remoteAddr.Network() == "tcp" {
+					klog.Infof("KITEX: update window[%d] after DataPaddedFlag, localAddr=%v, remoteAddr=%v", w, t.localAddr, t.remoteAddr)
+				}
 				t.controlBuf.put(&outgoingWindowUpdate{s.id, w})
 			}
 		}
